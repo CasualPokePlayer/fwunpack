@@ -112,26 +112,31 @@ int decompress (u8* src, u8* *dest) {
 	return decompressed_size;
 }
 
-int main(int argc, char* argv[]) 
-{
+#ifdef _WIN32
+# define EXPORT extern "C" __declspec(dllexport)
+#else
+# define EXPORT extern "C"
+#endif
+
+EXPORT bool GetDecyptedFirmware(u8* fw, u32 sz, u8** decryptedFw, u32* decryptedSz) {
 	printf ("Nintendo DS Firmware Unpacker by Michael Chisholm (Chishm)\n");
-	if (argc != 2) {
-		printf ("Specifiy a firmware file.\n");
-		return -1;
+
+	if (sz != 0x20000 && sz != 0x40000 && sz != 0x80000) {
+		return false; // bad size
 	}
+
+	const char* mac = "MAC";
+	char fwmac[4];
+	memcpy (fwmac, &fw[8], 3);
+	fwmac[3] = 0;
+	if (strcmp (fwmac, mac)) {
+		return false; // not a valid id
+	}
+
 	// Read the firmware file	
-	FILE* fw_bin = fopen (argv[1], "rb");
-	if (!fw_bin) {
-		printf ("Failed to open file.\n");
-		return -1;
-	}
-	fseek (fw_bin, 0, SEEK_END);
-	size_t fw_size = ftell (fw_bin);
-	fseek (fw_bin, 0, SEEK_SET);
-	u8* fw_data = (u8*)malloc(fw_size);
-	fread (fw_data, 1, fw_size, fw_bin);
-	fclose (fw_bin);
-	printf ("Firmware size 0x%08X\n", fw_size);
+	size_t fw_size = sz;
+	u8* fw_data = fw;
+	printf ("Firmware size 0x%08llX\n", fw_size);
 
 	FW_HEADER* fw_header = (FW_HEADER*)fw_data;
 
@@ -156,88 +161,52 @@ int main(int argc, char* argv[])
 	// Start unpacking
 	init_keycode ( ((u32*)fw_data)[2] , 2, 0x0C); // idcode (usually "MACP"), level 2
 
-	u8* decomp_data;
-	int decomp_size;
-	FILE* unpacked_bin;
-
-	// Firmware header
-	unpacked_bin = fopen ("header.bin", "wb");
-	fwrite (fw_data, 1, FW_HEADER_SIZE, unpacked_bin);
-	fclose (unpacked_bin);
+	u8* decomp_data[5];
+	int decomp_size[5];
 
 	// ARM7 boot binary
-	decomp_size  = decrypt_decompress (fw_data + arm7boot_romaddr, &decomp_data);
-	unpacked_bin = fopen ("arm7boot.bin", "wb");
-	fwrite (decomp_data, 1, decomp_size, unpacked_bin);
-	fclose (unpacked_bin);
-	free (decomp_data);
+	decomp_size[0]  = decrypt_decompress (fw_data + arm7boot_romaddr, &decomp_data[0]);
 
 	// ARM9 boot binary
-	decomp_size  = decrypt_decompress (fw_data + arm9boot_romaddr, &decomp_data);
-	unpacked_bin = fopen ("arm9boot.bin", "wb");
-	fwrite (decomp_data, 1, decomp_size, unpacked_bin);
-	fclose (unpacked_bin);
-	free (decomp_data);
+	decomp_size[1]  = decrypt_decompress (fw_data + arm9boot_romaddr, &decomp_data[1]);
 
 	// ARM7 GUI binary
-	decomp_size = part345_decompress (NULL, fw_data + arm7gui_romaddr);
-	printf ("ARM7 GUI size: 0x%08X\n", decomp_size);
-	decomp_data = (u8*) malloc (decomp_size);
-	part345_decompress (decomp_data, fw_data + arm7gui_romaddr);
-	unpacked_bin = fopen ("arm7gui.bin", "wb");
-	fwrite (decomp_data, 1, decomp_size, unpacked_bin);
-	fclose (unpacked_bin);
-	free (decomp_data);
+	decomp_size[2] = part345_decompress (NULL, fw_data + arm7gui_romaddr);
+	printf ("ARM7 GUI size: 0x%08X\n", decomp_size[2]);
+	decomp_data[2] = (u8*) malloc (decomp_size[2]);
+	part345_decompress (decomp_data[2], fw_data + arm7gui_romaddr);
 
 	// ARM9 GUI binary
-	decomp_size = part345_decompress (NULL, fw_data + arm9gui_romaddr);
-	printf ("ARM9 GUI size: 0x%08X\n", decomp_size);
-	decomp_data = (u8*) malloc (decomp_size);
-	part345_decompress (decomp_data, fw_data + arm9gui_romaddr);
-	unpacked_bin = fopen ("arm9gui.bin", "wb");
-	fwrite (decomp_data, 1, decomp_size, unpacked_bin);
-	fclose (unpacked_bin);
-	free (decomp_data);
+	decomp_size[3] = part345_decompress (NULL, fw_data + arm9gui_romaddr);
+	printf ("ARM9 GUI size: 0x%08X\n", decomp_size[3]);
+	decomp_data[3] = (u8*) malloc (decomp_size[3]);
+	part345_decompress (decomp_data[3], fw_data + arm9gui_romaddr);
 
 	// GUI graphics binary
-	decomp_size = part345_decompress (NULL, fw_data + data_romaddr);
-	printf ("GUI Data size: 0x%08X\n", decomp_size);
-	decomp_data = (u8*) malloc (decomp_size);
-	part345_decompress (decomp_data, fw_data + data_romaddr);
-	unpacked_bin = fopen ("gui_data.bin", "wb");
-	fwrite (decomp_data, 1, decomp_size, unpacked_bin);
-	fclose (unpacked_bin);
-	free (decomp_data);
+	decomp_size[4] = part345_decompress (NULL, fw_data + data_romaddr);
+	printf ("GUI Data size: 0x%08X\n", decomp_size[4]);
+	decomp_data[4] = (u8*) malloc (decomp_size[4]);
+	part345_decompress (decomp_data[4], fw_data + data_romaddr);
 
-	if (fw_data[0x17C] != 0xFF) {
-		printf ("Flashme firmware\n");
-		fw_header = (FW_HEADER*)(fw_data + 0x3F680);
-		arm9boot_romaddr = fw_header->part1_romaddr * (4 << ((fw_header->shift_amounts>>0) & 7));
-		arm9boot_ramaddr = 0x02800000 - fw_header->part1_ramaddr * (4 << ((fw_header->shift_amounts>>3) & 7));
-
-		arm7boot_romaddr = fw_header->part2_romaddr * (4 << ((fw_header->shift_amounts>>6) & 7));
-		arm7boot_ramaddr = (fw_header->shift_amounts & 0x1000 ? 0x02800000 : 0x03810000) - fw_header->part2_ramaddr * (4 << ((fw_header->shift_amounts>>9) & 7));
-
-		printf ("ARM9 Boot2: From 0x%08X to 0x%08X\n", arm9boot_romaddr, arm9boot_ramaddr);
-		printf ("ARM7 Boot2: From 0x%08X to 0x%08X\n", arm7boot_romaddr, arm7boot_ramaddr);
-
-		// ARM7 boot2 binary
-		decomp_size  = decompress (fw_data + arm7boot_romaddr, &decomp_data);
-		unpacked_bin = fopen ("arm7boot2.bin", "wb");
-		fwrite (decomp_data, 1, decomp_size, unpacked_bin);
-		fclose (unpacked_bin);
-		free (decomp_data);
-
-		// ARM9 boot2 binary
-		decomp_size  = decompress (fw_data + arm9boot_romaddr, &decomp_data);
-		unpacked_bin = fopen ("arm9boot2.bin", "wb");
-		fwrite (decomp_data, 1, decomp_size, unpacked_bin);
-		fclose (unpacked_bin);
-		free (decomp_data);
+	*decryptedSz = 0;
+	for (int i = 0; i < 5; i++) {
+		*decryptedSz += decomp_size[i];
 	}
 
+	*decryptedFw = (u8*) malloc (*decryptedSz);
+	u8* dfw = *decryptedFw;
+
+	for (int i = 0; i < 5; i++) {
+		memcpy (dfw, decomp_data[i], decomp_size[i]);
+		dfw += decomp_size[i];
+		free (decomp_data[i]);
+	}
 
 	printf ("Done\n");
 
-	return 0;
+	return true;
+}
+
+EXPORT void FreeDecryptedFirmware(u8* fw) {
+	free (fw);
 }

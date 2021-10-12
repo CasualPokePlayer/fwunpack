@@ -1,0 +1,10 @@
+*.os
+*.so
+*.dll
+*.a
+
+.scon*
+config.log
+
+.vs/
+.vscode/
