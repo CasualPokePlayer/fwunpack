@@ -118,7 +118,7 @@ int decompress (u8* src, u8* *dest) {
 # define EXPORT extern "C"
 #endif
 
-EXPORT bool GetDecyptedFirmware(u8* fw, u32 sz, u8** decryptedFw, u32* decryptedSz) {
+EXPORT bool GetDecryptedFirmware(u8* fw, u32 sz, void** decryptedFw, u32* decryptedSz) {
 	printf ("Nintendo DS Firmware Unpacker by Michael Chisholm (Chishm)\n");
 
 	if (sz != 0x20000 && sz != 0x40000 && sz != 0x80000) {
@@ -193,8 +193,8 @@ EXPORT bool GetDecyptedFirmware(u8* fw, u32 sz, u8** decryptedFw, u32* decrypted
 		*decryptedSz += decomp_size[i];
 	}
 
-	*decryptedFw = (u8*) malloc (*decryptedSz);
-	u8* dfw = *decryptedFw;
+	*decryptedFw = malloc (*decryptedSz);
+	u8* dfw = (u8*)*decryptedFw;
 
 	for (int i = 0; i < 5; i++) {
 		memcpy (dfw, decomp_data[i], decomp_size[i]);
@@ -207,6 +207,6 @@ EXPORT bool GetDecyptedFirmware(u8* fw, u32 sz, u8** decryptedFw, u32* decrypted
 	return true;
 }
 
-EXPORT void FreeDecryptedFirmware(u8* fw) {
+EXPORT void FreeDecryptedFirmware(void* fw) {
 	free (fw);
 }
